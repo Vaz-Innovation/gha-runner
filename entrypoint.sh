@@ -13,9 +13,43 @@ if [ -z "$REPO_URL" ]; then
     exit 1
 fi
 
+# Registration tokens expire after one hour, so a fixed REGISTRATION_TOKEN
+# breaks the runner on its next restart. With ACCESS_TOKEN (a PAT allowed to
+# manage self-hosted runners) a fresh token is requested on every start.
+# REPO_URL https://github.com/org        -> orgs/org
+# REPO_URL https://github.com/owner/repo -> repos/owner/repo
+REPO_PATH=$(echo "${REPO_URL%/}" | sed -E 's#^https?://[^/]+/##')
+if [[ "$REPO_PATH" == */* ]]; then
+    API_SCOPE="repos/${REPO_PATH}"
+else
+    API_SCOPE="orgs/${REPO_PATH}"
+fi
+GITHUB_API_URL=${GITHUB_API_URL:-"https://api.github.com"}
+
+# Usage: fetch_token registration-token | remove-token
+fetch_token() {
+    local token
+    token=$(curl -fsS -X POST \
+        -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "${GITHUB_API_URL}/${API_SCOPE}/actions/runners/$1" | jq -r '.token // empty')
+    if [ -z "$token" ]; then
+        echo "Error: could not get a $1 from ${GITHUB_API_URL}/${API_SCOPE}" >&2
+        echo "Check that ACCESS_TOKEN is valid and can manage self-hosted runners" >&2
+        return 1
+    fi
+    echo "$token"
+}
+
+if [ -n "$ACCESS_TOKEN" ]; then
+    echo "Requesting a registration token for ${API_SCOPE}..."
+    REGISTRATION_TOKEN=$(fetch_token registration-token)
+fi
+
 if [ -z "$REGISTRATION_TOKEN" ]; then
-    echo "Error: REGISTRATION_TOKEN environment variable is required"
-    echo "Get token from: $REPO_URL/settings/actions/runners/new"
+    echo "Error: ACCESS_TOKEN or REGISTRATION_TOKEN environment variable is required"
+    echo "Get a registration token from: $REPO_URL/settings/actions/runners/new"
     exit 1
 fi
 
@@ -69,7 +103,11 @@ sed -i 's/\x41\x00\x43\x00\x54\x00\x49\x00\x4F\x00\x4E\x00\x53\x00\x5F\x00\x52\x
 cleanup() {
     if [ "$EPHEMERAL" != "true" ]; then
         echo "Removing runner..."
-        ./config.sh remove --token "$REGISTRATION_TOKEN"
+        REMOVE_TOKEN=$REGISTRATION_TOKEN
+        if [ -n "$ACCESS_TOKEN" ]; then
+            REMOVE_TOKEN=$(fetch_token remove-token) || REMOVE_TOKEN=$REGISTRATION_TOKEN
+        fi
+        ./config.sh remove --token "$REMOVE_TOKEN"
     else
         echo "Ephemeral runner - no manual cleanup needed"
     fi

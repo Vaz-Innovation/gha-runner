@@ -17,7 +17,15 @@ Inspired from https://github.com/chaddyc/gha-runner and tweaked for my personal 
 # GitHub repository URL
 REPO_URL=https://github.com/owner/repo
 
+# Personal access token used to request a fresh registration token on every start.
+# Fine-grained PAT: for an organization runner, "Self-hosted runners" (read and write)
+# on the organization; for a repository runner, "Administration" (read and write)
+# on the repository. Preferred over REGISTRATION_TOKEN, which expires after one hour
+# and stops the runner from starting again after a restart.
+ACCESS_TOKEN=<your-personal-access-token>
+
 # Runner registration token (obtained from Settings > Actions > Runners > New runner)
+# Only used when ACCESS_TOKEN is not set.
 REGISTRATION_TOKEN=<your-registration-token>
 
 # OPTIONAL Runner name (default: docker-runner-{hostname})
